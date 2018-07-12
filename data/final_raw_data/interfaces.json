@@ -1,0 +1,26 @@
+{
+  "tools": [
+    {
+      "name": "Fire",
+      "color": "red",
+      "tool": "rectangle"
+    }
+  ],
+  "classifications": [
+    {
+      "name": "model",
+      "instructions": "Is there any fire?",
+      "type": "radio",
+      "options": [
+        {
+          "value": "1",
+          "label": "Yes"
+        },
+        {
+          "value": "0",
+          "label": "No"
+        }
+      ]
+    }
+  ]
+}
