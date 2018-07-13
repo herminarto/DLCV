@@ -63,6 +63,7 @@ class CustomDatasetFromImages(Dataset):
 #                                                    shuffle=False)
 
 def CustomSplitLoader(datasets, batch_size, train_percentage, test_percentage, valid_percentage):
+    # Split the datasets into training, testing, and validation
     num_train = len(datasets)
     indices = list(range(num_train))
     split_test = int(np.floor(train_percentage/100 * num_train))
