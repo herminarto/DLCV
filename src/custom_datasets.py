@@ -16,8 +16,6 @@ from torch.utils.data.sampler import SubsetRandomSampler
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-log_interval = 100
-
 class CustomDatasetFromImages(Dataset):
     def __init__(self, csv_path):
         """
@@ -43,7 +41,7 @@ class CustomDatasetFromImages(Dataset):
         # Get image name from the pandas df
         single_image_name = self.image_arr[index]
         # Open image
-        img_as_img = Image.open(single_image_name)
+        img_as_img = Image.open(single_image_name).convert("RGB")          
         # Transform image to tensor
         img_as_tensor = self.to_tensor(img_as_img)
         # Get label(class) of the image based on the cropped pandas column
