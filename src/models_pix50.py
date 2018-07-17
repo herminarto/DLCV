@@ -8,22 +8,8 @@ Created on Fri Jul 13 13:55:08 2018
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Variable
-
-import torchvision
-from torchvision import datasets
-from torchvision import transforms
-from torch import nn, optim
+from torch import optim
 from torchvision.utils import save_image
-#from torchsummary import summary
-
-#from pushover import notify
-#from utils import makegif
-from random import randint
-
-from IPython.display import Image
-from IPython.core.display import Image, display
-
 from custom_datasets import CustomDatasetFromImages, CustomSplitLoader
 
 # Device configuration
@@ -32,45 +18,63 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 batch_size = 200
 log_interval = 10
 epochs = 50
-latent_dim = 30
+latent_dim = 20
 
-dataset = CustomDatasetFromImages('../data/fire_labels.csv')
+dataset = CustomDatasetFromImages('../data/fire_labels_pix50.csv')
 train_loader = torch.utils.data.DataLoader(dataset, batch_size, shuffle=True)
 test_loader = torch.utils.data.DataLoader(dataset, batch_size, shuffle=True)
 valid_loader = torch.utils.data.DataLoader(dataset, batch_size, shuffle=True)
 #train_loader, test_loader, valid_loader = CustomSplitLoader(dataset, batch_size, 60, 20, 20)
 
+class Flatten(nn.Module):
+    def forward(self, input):
+        return input.view(input.size(0), -1)
+
+class UnFlatten(nn.Module):
+    def forward(self, input, size=256):
+        return input.view(input.size(0), size, 1, 1)
+    
 class VAE(nn.Module):
-    def __init__(self):
+    def __init__(self, image_channels=3, h_dim=256, z_dim=latent_dim):
         super(VAE, self).__init__()
-        kernel_size = 4
-        stride = 1
-        padding = 0
-        
         self.encoder = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size, stride, padding),
+            nn.Conv2d(image_channels, 32, kernel_size=4, stride=2),
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size, stride, padding),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2),
             nn.ReLU(),
-            nn.Conv2d(64, 128, kernel_size, stride, padding),
+            nn.Conv2d(64, 128, kernel_size=4, stride=2),
             nn.ReLU(),
-            nn.Conv2d(128, 256, kernel_size, stride, padding),
-            nn.ReLU())
-        self.conv1 = nn.Conv2d(256, latent_dim, 16, stride, padding)
-        self.conv2 = nn.Conv2d(256, latent_dim, 16, stride, padding)
-        self.conv3 = nn.ConvTranspose2d(latent_dim, 256, 1, stride, padding)
+            nn.Conv2d(128, 256, kernel_size=4, stride=2),
+            nn.ReLU(),
+            Flatten()
+        )
+        
+        self.fc1 = nn.Linear(h_dim, z_dim)
+        self.fc2 = nn.Linear(h_dim, z_dim)
+        self.fc3 = nn.Linear(z_dim, h_dim)
+        
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(256, 128, 7, stride, padding),
+            UnFlatten(),
+            nn.ConvTranspose2d(h_dim, 128, kernel_size=4, stride=2),
             nn.ReLU(),
-            nn.ConvTranspose2d(128, 64, 8, stride, padding),
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2),
             nn.ReLU(),
-            nn.ConvTranspose2d(64, 32, 8, stride, padding),
+            nn.ConvTranspose2d(64, 32, kernel_size=5, stride=2),
             nn.ReLU(),
-            nn.ConvTranspose2d(32, 3, 8, stride, padding),
-            nn.Sigmoid())
+            nn.ConvTranspose2d(32, image_channels, kernel_size=6, stride=2),
+            nn.Sigmoid(),
+        )
+        
+    def reparameterize(self, mu, logvar):
+        if self.training:
+            std = torch.exp(0.5*logvar)
+            eps = torch.randn_like(std)
+            return eps.mul(std).add_(mu)
+        else:
+            return mu
     
     def bottleneck(self, h):
-        mu, logvar = self.conv1(h), self.conv2(h)
+        mu, logvar = self.fc1(h), self.fc2(h)
         z = self.reparameterize(mu, logvar)
         return z, mu, logvar
 
@@ -80,7 +84,7 @@ class VAE(nn.Module):
         return z, mu, logvar
 
     def decode(self, z):
-        z = self.conv3(z)
+        z = self.fc3(z)
         z = self.decoder(z)
         return z
 
@@ -88,17 +92,9 @@ class VAE(nn.Module):
         z, mu, logvar = self.encode(x)
         z = self.decode(z)
         return z, mu, logvar
-           
-    def reparameterize(self, mu, logvar):
-        if self.training:
-            std = torch.exp(0.5*logvar)
-            eps = torch.randn_like(std)
-            return eps.mul(std).add_(mu)
-        else:
-            return mu
 
 model = VAE().to(device)
-optimizer = optim.Adam(model.parameters(), lr=2e-3)
+optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 # Reconstruction + KL divergence losses summed over all elements and batch
 def loss_function(recon_x, x, mu, logvar):
@@ -137,7 +133,7 @@ def test(epoch):
             if i == 0:
                 n = min(data.size(0), 8)
                 comparison = torch.cat([data[:n],
-                                      recon_batch.view(batch_size, 3, 28, 28)[:n]])
+                                      recon_batch.view(batch_size, 3, 50, 50)[:n]])
                 save_image(comparison.cpu(),
                          'results/reconstruction_' + str(epoch) + '.png', nrow=n)
     test_loss /= len(test_loader.dataset)
@@ -147,7 +143,7 @@ for epoch in range(epochs):
     train(epoch)
     test(epoch)
     with torch.no_grad():
-        sample = torch.randn(64, latent_dim, 1, 1).to(device)
+        sample = torch.randn(64, latent_dim).to(device)
         sample = model.decode(sample).cpu()
-        save_image(sample.view(64, 3, 28, 28),
+        save_image(sample.view(64, 3, 50, 50),
                    'results/sample_' + str(epoch) + '.png')

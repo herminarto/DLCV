@@ -1,0 +1,67 @@
+batch_size = 200
+log_interval = 10
+epochs = 50
+latent_dim = 30
+
+dataset = CustomDatasetFromImages('../data/fire_labels.csv')
+train_loader = torch.utils.data.DataLoader(dataset, batch_size, shuffle=True)
+test_loader = torch.utils.data.DataLoader(dataset, batch_size, shuffle=True)
+valid_loader = torch.utils.data.DataLoader(dataset, batch_size, shuffle=True)
+#train_loader, test_loader, valid_loader = CustomSplitLoader(dataset, batch_size, 60, 20, 20)
+
+class VAE(nn.Module):
+    def __init__(self):
+        super(VAE, self).__init__()
+        kernel_size = 4
+        stride = 1
+        padding = 0
+        
+        self.encoder = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size, stride, padding),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size, stride, padding),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size, stride, padding),
+            nn.ReLU(),
+            nn.Conv2d(128, 256, kernel_size, stride, padding),
+            nn.ReLU())
+        self.conv1 = nn.Conv2d(256, latent_dim, 16, stride, padding)
+        self.conv2 = nn.Conv2d(256, latent_dim, 16, stride, padding)
+        self.conv3 = nn.ConvTranspose2d(latent_dim, 256, 1, stride, padding)
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(256, 128, 7, stride, padding),
+            nn.ReLU(),
+            nn.ConvTranspose2d(128, 64, 8, stride, padding),
+            nn.ReLU(),
+            nn.ConvTranspose2d(64, 32, 8, stride, padding),
+            nn.ReLU(),
+            nn.ConvTranspose2d(32, 3, 8, stride, padding),
+            nn.Sigmoid())
+    
+    def bottleneck(self, h):
+        mu, logvar = self.conv1(h), self.conv2(h)
+        z = self.reparameterize(mu, logvar)
+        return z, mu, logvar
+
+    def encode(self, x):
+        h = self.encoder(x)
+        z, mu, logvar = self.bottleneck(h)
+        return z, mu, logvar
+
+    def decode(self, z):
+        z = self.conv3(z)
+        z = self.decoder(z)
+        return z
+
+    def forward(self, x):
+        z, mu, logvar = self.encode(x)
+        z = self.decode(z)
+        return z, mu, logvar
+           
+    def reparameterize(self, mu, logvar):
+        if self.training:
+            std = torch.exp(0.5*logvar)
+            eps = torch.randn_like(std)
+            return eps.mul(std).add_(mu)
+        else:
+            return mu
